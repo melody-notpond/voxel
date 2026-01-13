@@ -1,0 +1,6 @@
+/voxels
+/compile_commands.json
+.cache/
+*.o
+*.spv
+/_shaders.cpp
