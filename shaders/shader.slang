@@ -10,40 +10,46 @@ float4 vert_main(uint id : SV_VertexID) : SV_Position {
   return float4(vertices[id], 0.0, 1.0);
 }
 
-float sd_sphere(float3 p, float3 centre, float radius) {
-  return length(p - centre) - radius;
+float4 sd_sphere(float3 p, float3 centre, float radius) {
+  return float4(1, 1, 0, length(p - centre) - radius);
 }
 
-float sd_box(float3 p, float3 centre, float3 bounds) {
+float4 sd_box(float3 p, float3 centre, float3 bounds) {
   p = p - centre;
   float3 q = abs(p) - bounds;
-  return length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0);
+  return float4(0, 0, 1, length(max(q, 0)) + min(max(q.x, max(q.y, q.z)), 0));
 }
 
-float sd_union(float p, float q) {
-  return min(p, q);
+float4 sd_union(float4 p, float4 q) {
+  if (p.a < q.a)
+    return p;
+  else return q;
 }
 
-float sunion(float p, float q, float k) {
+float4 sd_intersect(float4 p, float4 q) {
+  if (p.a > q.a)
+    return p;
+  else return q;
+}
+
+float4 sd_sub(float4 p, float4 q) {
+  return sd_intersect(-p, q);
+}
+
+float4 sunion(float4 p, float4 q, float k) {
   k *= 4.0;
-  float h = max(k-abs(p-q),0.0);
-  return min(p, q) - h*h*0.25/k;
+  float4 h = sd_intersect(k-abs(p-q),0.0);
+  return sd_union(p, q) - h*h*0.25/k;
 }
 
-float ssub(float p, float q, float k) {
+float4 ssub(float4 p, float4 q, float k) {
   return -sunion(p, -q, k);
 }
 
-float sintersect(float p, float q, float k) {
-  return -sunion(-p, -q, k);
-}
-
-float sd_sub(float p, float q) {
-  return max(-p, q);
-}
-
-float sd_intersect(float p, float q) {
-  return max(p, q);
+float4 sintersect(float4 p, float4 q, float k) {
+  if (p.a > q.a)
+    return p;
+  else return q;
 }
 
 float2x2 rot2d(float angle) {
@@ -52,17 +58,29 @@ float2x2 rot2d(float angle) {
   return float2x2(c, s, -s, c);
 }
 
-float sdf(float3 p) {
-  float sphere = sd_sphere(p, float3(0, 1, -3), 1);
+float4 sdf(float3 p) {
+  float4 sphere = sd_sphere(p, float3(0, 1, -3), 1);
   float3 q = p;
   q.xz = mul(rot2d(3.14 / 4), q.xz);
   q.yz = mul(rot2d(3.14 / 4), q.yz);
-  float box = sd_box(q, float3(0, 2, -3), float3(0.75));
-  float ground = p.y + 0.75;
+  float4 box = sd_box(q, float3(0, 2, -3), float3(0.75));
+  float4 ground = float4(0, 1, 0, p.y + 0.75);
   return sd_union(ground, sunion(sphere, box, 1));
 }
 
 static const float EPSILON = 0.001;
+
+float3 calculate_normal(float3 p) {
+  float3 v1 = float3(
+    sdf(p + float3(EPSILON, 0, 0)).a,
+    sdf(p + float3(0, EPSILON, 0)).a,
+    sdf(p + float3(0, 0, EPSILON)).a);
+  float3 v2 = float3(
+    sdf(p - float3(EPSILON, 0, 0)).a,
+    sdf(p - float3(0, EPSILON, 0)).a,
+    sdf(p - float3(0, 0, EPSILON)).a);
+  return normalize(v1 - v2);
+}
 
 struct Camera {
   float4x4 view;
@@ -85,17 +103,22 @@ float4 frag_main(in float4 pos : SV_Position)
   ray_dir = normalize(ray_dir);
   float3 color;
   float t = cam.z_near;
+  float light = 0;
 
   for (int i = 0; i < cam.max_marches && t < cam.z_far; i++) {
     float3 p = ray_origin + ray_dir * t;
     p = mul(cam.view, float4(p, 1)).xyz;
-    float dist = sdf(p);
-    if (dist < EPSILON)
+    float4 d = sdf(p);
+    if (d.a < EPSILON) {
+      light = max(0.05, dot(calculate_normal(p), normalize(float3(1, 1, 1))));
+      color = d.rgb;
       break;
-    t += dist;
+    }
+    t += d.a;
   }
 
-  color = float3(t * 0.05);
+  float depth_mul = (cam.z_far - t) / (cam.z_far - cam.z_near);
+  color *= depth_mul * light;
 
   return float4(color, 1);
 }
