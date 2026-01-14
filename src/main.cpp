@@ -1,7 +1,6 @@
 #include "camera.hpp"
 #include "device.hpp"
 #include "gameobj.hpp"
-#include "model.hpp"
 #include "renderer.hpp"
 #include "texture.hpp"
 #include "window.hpp"
@@ -11,12 +10,12 @@ using namespace std;
 
 void update_uniforms(vx::Renderer &render, glm::mat4 view, glm::mat4 proj,
   vx::GameObj &obj) {
-  vx::UniformData ubo {
-    .model = glm::translate(glm::mat4(1.), { 0., 0., -5. }),
-    .view = view,
-    .proj = proj
-  };
-  obj.uniforms = ubo;
+  // vx::UniformData ubo {
+  //   .model = glm::translate(glm::mat4(1.), { 0., 0., -5. }),
+  //   .view = view,
+  //   .proj = proj
+  // };
+  // obj.uniforms = ubo;
 }
 
 vx::CameraAction cam_action = vx::CameraAction::None;
@@ -83,21 +82,22 @@ void key_callback(
 
 // TODO
 // - switch from uniforms to push constants?
+// - switch to raymarching (currently working on drawing a rectangle)
 // - start working on voxel
 int main(void) {
   vx::Window window(800, 600, "voxels");
   window.set_key_callback(key_callback);
   vx::Device device(window);
   vx::Renderer render(window, device, 2);
-  vx::Texture texture(render, "assets/viking_room.png");
-  vx::Model model(render, "assets/viking_room.obj");
+  // vx::Texture texture(render, "assets/viking_room.png");
+  // vx::Model model(render, "assets/viking_room.obj");
 
   vx::Camera camera;
 
-  vx::GameObj obj {
-    .model = model,
-    .shader_data = render.create_shader_data(texture),
-  };
+  // vx::GameObj obj {
+  //   .model = model,
+  //   .shader_data = render.create_shader_data(texture),
+  // };
 
   window.delta_time();
   while (!window.should_close()) {
@@ -109,18 +109,17 @@ int main(void) {
       float dx, dy;
       window.delta_cursor(dx, dy);
       camera.rotate(dx, dy);
-      // std::cout << "dx = " << dx << ", dy = " << dy << std::endl;
-
       camera.set_action(cam_action);
       camera.update(dt);
     }
 
     // render
-    render.begin_frame();
-    glm::mat4 view = camera.view_mat();
-    glm::mat4 proj = camera.proj_mat(render.aspect_ratio());
-    update_uniforms(render, view, proj, obj);
-    obj.render(render);
+    if (!render.begin_frame(camera))
+      continue;
+    // glm::mat4 view = camera.view_mat();
+    // glm::mat4 proj = camera.proj_mat(render.aspect_ratio());
+    // update_uniforms(render, view, proj, obj);
+    // obj.render(render);
     render.end_frame();
   }
 

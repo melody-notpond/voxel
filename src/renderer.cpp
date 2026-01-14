@@ -1,7 +1,8 @@
 #include "renderer.hpp"
 
-#include "model.hpp"
+#include "camera.hpp"
 #include "shaders.h"
+#include "vulkan/vulkan.hpp"
 
 using namespace vx;
 
@@ -24,17 +25,26 @@ UniformBuffer<T>::UniformBuffer(Renderer &render) {
   }
 }
 
+Renderer::Renderer(vx::Window &window, vx::Device &device,
+  uint32_t descriptor_count)
+  : window_ (window)
+  , device_ (device)
+  , swapchain_ (window, device)
+  , pool_ (device.create_command_pool())
+  , command_buffers (pool_.create_buffers(Swapchain::MAX_FRAMES_IN_FLIGHT))
+  , camera_uniforms (*this) {
+  create_descriptor_layout();
+  create_pipeline();
+  create_descriptor_pool(descriptor_count);
+  create_descriptor_sets();
+  create_sync_objs();
+}
+
 void Renderer::create_descriptor_layout() {
    std::array bindings {
     vk::DescriptorSetLayoutBinding {
       .binding = 0,
       .descriptorType = vk::DescriptorType::eUniformBuffer,
-      .descriptorCount = 1,
-      .stageFlags = vk::ShaderStageFlagBits::eVertex
-    },
-    vk::DescriptorSetLayoutBinding {
-      .binding = 1,
-      .descriptorType = vk::DescriptorType::eCombinedImageSampler,
       .descriptorCount = 1,
       .stageFlags = vk::ShaderStageFlagBits::eFragment
     }
@@ -68,13 +78,13 @@ void Renderer::create_pipeline() {
   };
 
   // describe vertex buffers
-  auto bindings = Vertex::getBindingDesc();
-  auto attrs = Vertex::getAttrsDescs();
+  // auto bindings = Vertex::getBindingDesc();
+  // auto attrs = Vertex::getAttrsDescs();
   vk::PipelineVertexInputStateCreateInfo vertex_input_info {
-    .vertexBindingDescriptionCount = 1,
-    .pVertexBindingDescriptions = &bindings,
-    .vertexAttributeDescriptionCount = attrs.size(),
-    .pVertexAttributeDescriptions = attrs.data()
+    // .vertexBindingDescriptionCount = 1,
+    // .pVertexBindingDescriptions = &bindings,
+    // .vertexAttributeDescriptionCount = attrs.size(),
+    // .pVertexAttributeDescriptions = attrs.data()
   };
 
   // we want our viewport and scissor to be able to dynamically change so we
@@ -97,7 +107,7 @@ void Renderer::create_pipeline() {
 
   // how do we want our vertices to be assembled
   vk::PipelineInputAssemblyStateCreateInfo input_assembly {
-    .topology = vk::PrimitiveTopology::eTriangleList,
+    .topology = vk::PrimitiveTopology::eTriangleStrip,
   };
 
   // how do we want to rasterise our geometry
@@ -135,11 +145,18 @@ void Renderer::create_pipeline() {
     .pAttachments = &color_blend_attachment
   };
 
+  vk::PushConstantRange push_constants {
+    .stageFlags = vk::ShaderStageFlagBits::eFragment,
+    .offset = 0,
+    .size = sizeof(CameraUniforms),
+  };
+
   // what descriptor sets we can provide to the shaders
   vk::PipelineLayoutCreateInfo layout_info {
     .setLayoutCount = 1,
     .pSetLayouts = &*descriptor_layout,
-    .pushConstantRangeCount = 0
+    .pushConstantRangeCount = 1,
+    .pPushConstantRanges = &push_constants
   };
 
   pipeline_layout = vk::raii::PipelineLayout(device_.device(), layout_info);
@@ -188,26 +205,55 @@ vk::raii::ShaderModule Renderer::create_shader_module() {
 }
 
 void Renderer::create_descriptor_pool(uint32_t descriptor_count) {
-  uint32_t count = descriptor_count * Swapchain::MAX_FRAMES_IN_FLIGHT;
   std::array pool_sizes {
     vk::DescriptorPoolSize {
       .type = vk::DescriptorType::eUniformBuffer,
-      .descriptorCount = count
-    },
-    vk::DescriptorPoolSize {
-      .type = vk::DescriptorType::eCombinedImageSampler,
-      .descriptorCount = count
+      .descriptorCount = Swapchain::MAX_FRAMES_IN_FLIGHT
     }
   };
 
   vk::DescriptorPoolCreateInfo pool_info {
     .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-    .maxSets = count,
+    .maxSets = Swapchain::MAX_FRAMES_IN_FLIGHT,
     .poolSizeCount = pool_sizes.size(),
     .pPoolSizes = pool_sizes.data()
   };
 
   descriptor_pool = vk::raii::DescriptorPool(device_.device(), pool_info);
+}
+
+void Renderer::create_descriptor_sets() {
+  std::vector<vk::DescriptorSetLayout> layouts (Swapchain::MAX_FRAMES_IN_FLIGHT,
+    descriptor_layout);
+  vk::DescriptorSetAllocateInfo alloc_info {
+    .descriptorPool = descriptor_pool,
+    .descriptorSetCount = static_cast<uint32_t>(layouts.size()),
+    .pSetLayouts = layouts.data()
+  };
+
+  camera_descriptor_sets = device_.device().allocateDescriptorSets(alloc_info);
+
+  // set up each descriptor set to point to the right uniform buffer
+  for (int i = 0; i < Swapchain::MAX_FRAMES_IN_FLIGHT; i++) {
+    vk::DescriptorBufferInfo buffer_info {
+      .buffer = camera_uniforms.ubo(i),
+      .offset = 0,
+      .range = sizeof(CameraUniforms)
+    };
+
+    std::array write_sets {
+      vk::WriteDescriptorSet {
+        .dstSet = camera_descriptor_sets[i],
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = vk::DescriptorType::eUniformBuffer,
+        .pBufferInfo = &buffer_info
+      },
+    };
+
+    device_.device().updateDescriptorSets(write_sets, {});
+  }
 }
 
 ShaderData Renderer::create_shader_data(Texture &texture) {
@@ -282,7 +328,7 @@ void Renderer::create_sync_objs() {
   }
 }
 
-bool Renderer::begin_frame() {
+bool Renderer::begin_frame(Camera camera) {
   auto frame_index = swapchain_.frame_index();
 
   // wait on the cpu for the frame in flight to be available
@@ -306,11 +352,11 @@ bool Renderer::begin_frame() {
   // reset fence for our frame in flight and start drawing
   device_.device().resetFences(*draw_fences[frame_index]);
   command_buffers[frame_index].reset();
-  begin_recording(frame_index);
+  begin_recording(frame_index, camera);
   return true;
 }
 
-void Renderer::begin_recording(int frame_index) {
+void Renderer::begin_recording(int frame_index, Camera camera) {
   auto &commands = command_buffers[frame_index];
   commands.begin({});
 
@@ -372,11 +418,13 @@ void Renderer::begin_recording(int frame_index) {
   };
 
   // our viewport is just the whole image
+  float width = static_cast<float>(extent.width);
+  float height = static_cast<float>(extent.height);
   vk::Viewport viewport {
     .x =  0.0f,
     .y = 0.0f,
-    .width = static_cast<float>(extent.width),
-    .height = static_cast<float>(extent.height),
+    .width = width,
+    .height = height,
     .minDepth = 0.0f,
     .maxDepth = 1.0f
   };
@@ -387,6 +435,9 @@ void Renderer::begin_recording(int frame_index) {
   commands.setScissor(0,
     vk::Rect2D(vk::Offset2D(0, 0), extent));
   commands.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+  commands.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline_layout,
+    0, *camera_descriptor_sets[frame_index], nullptr);
+  camera_uniforms.upload(frame_index, camera.uniforms(width, height));
 }
 
 void Renderer::transition_image_layout(
@@ -433,13 +484,14 @@ void Renderer::bind_shader_data(ShaderData &data, UniformData &uniforms) {
   auto &commands = command_buffers[frame_index];
   commands.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
     pipeline_layout, 0, *data.descriptor_sets[frame_index], nullptr);
-  memcpy(data.uniforms.mapped(frame_index), &uniforms, sizeof(uniforms));
+  data.uniforms.upload(frame_index, uniforms);
 }
 
 void Renderer::end_frame() {
   auto frame_index = swapchain_.frame_index();
   auto &commands = command_buffers[frame_index];
 
+  commands.draw(4, 1, 0, 0);
   commands.endRendering();
 
   // now we want the image buffer to be ready to present

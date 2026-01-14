@@ -1,5 +1,6 @@
 #pragma once
 
+#include "camera.hpp"
 #include "device.hpp"
 #include "swapchain.hpp"
 #include "texture.hpp"
@@ -13,17 +14,11 @@ namespace vx {
 
 class Renderer;
 
-struct UniformData {
-  alignas(16) glm::mat4 model;
-  alignas(16) glm::mat4 view;
-  alignas(16) glm::mat4 proj;
-};
-
 template <typename T>
 class UniformBuffer {
 public:
-  UniformBuffer<T>(vx::Renderer &render);
-  ~UniformBuffer<T>() {
+  UniformBuffer(vx::Renderer &render);
+  ~UniformBuffer() {
     for (int i = 0; i < mems_.size(); i++) {
       mems_[i].unmapMemory();
     }
@@ -43,9 +38,16 @@ public:
     return *this;
   }
 
+  void upload(int frame_index, T &data) {
+    memcpy(mapped_[frame_index], &data, sizeof(T));
+  }
+
+  void upload(int frame_index, T &&data) {
+    memcpy(mapped_[frame_index], &data, sizeof(T));
+  }
+
   vk::raii::Buffer &ubo(int frame_index) { return ubos_[frame_index]; }
   vk::raii::DeviceMemory &mem(int frame_index) { return mems_[frame_index]; }
-  T *mapped(int frame_index) { return mapped_[frame_index]; }
 
 private:
   std::vector<vk::raii::Buffer> ubos_;
@@ -59,6 +61,8 @@ private:
   }
 };
 
+struct UniformData {};
+
 struct ShaderData {
   // no copy because uniform buffers has no copy constructor
   Texture &texture;
@@ -68,21 +72,11 @@ struct ShaderData {
 
 class Renderer {
 public:
-  Renderer(vx::Window &window, vx::Device &device, uint32_t descriptor_count)
-    : window_ (window)
-    , device_ (device)
-    , swapchain_ (window, device)
-    , pool_ (device.create_command_pool()) {
-    command_buffers = pool_.create_buffers(Swapchain::MAX_FRAMES_IN_FLIGHT);
-    create_descriptor_layout();
-    create_pipeline();
-    create_descriptor_pool(descriptor_count);
-    create_sync_objs();
-  }
+  Renderer(vx::Window &window, vx::Device &device, uint32_t descriptor_count);
 
   ShaderData create_shader_data(Texture &texture);
 
-  bool begin_frame();
+  bool begin_frame(Camera camera);
   void bind_shader_data(ShaderData &data, UniformData &uniforms);
   void end_frame();
 
@@ -111,6 +105,10 @@ private:
   vk::raii::PipelineLayout pipeline_layout = nullptr;
   vk::raii::Pipeline pipeline = nullptr;
 
+  // camera
+  vx::UniformBuffer<CameraUniforms> camera_uniforms;
+  std::vector<vk::raii::DescriptorSet> camera_descriptor_sets;
+
   std::vector<vk::raii::Semaphore> render_done_sems;
   std::vector<vk::raii::Semaphore> present_done_sems;
   std::vector<vk::raii::Fence> draw_fences;
@@ -121,9 +119,10 @@ private:
   void create_pipeline();
   vk::raii::ShaderModule create_shader_module();
   void create_descriptor_pool(uint32_t descriptor_count);
+  void create_descriptor_sets();
   void create_sync_objs();
 
-  void begin_recording(int frame_index);
+  void begin_recording(int frame_index, Camera camera);
   void transition_image_layout(
     vk::raii::CommandBuffer &commands,
     const vk::Image &image,

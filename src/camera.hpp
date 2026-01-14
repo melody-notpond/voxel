@@ -4,6 +4,15 @@
 
 namespace vx {
 
+struct CameraUniforms {
+  glm::mat4 view;
+  glm::vec2 viewport;
+  float tan_fov;
+  float z_near;
+  float z_far;
+  int max_marches;
+};
+
 enum CameraAction : int {
   None        = 0b000000,
   MoveFront   = 0b000001,
@@ -48,8 +57,7 @@ public:
 
   void update(float dt);
 
-  glm::mat4 view_mat();
-  glm::mat4 proj_mat(float aspect_ratio);
+  CameraUniforms uniforms(float width, float height);
 private:
   static constexpr float DEGREES_90  = glm::radians(90.);
   static constexpr float DEGREES_360 = glm::radians(360.);
@@ -65,6 +73,7 @@ private:
   float fov = glm::radians(45.);
   float z_near = .1;
   float z_far = 10.;
+  int max_marches = 80;
 };
 
 }

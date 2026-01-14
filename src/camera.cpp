@@ -3,7 +3,6 @@
 #include <cmath>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
-#include <numbers>
 
 using namespace vx;
 
@@ -34,18 +33,20 @@ void Camera::update(float dt) {
   action = CameraAction::None;
 }
 
-glm::mat4 Camera::view_mat() {
+CameraUniforms Camera::uniforms(float width, float height) {
   // maths stolen from https://www.opengl-tutorial.org/beginners-tutorials/tutorial-6-keyboard-and-mouse/
   glm::vec3 direction(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw));
   float yaw_orth = yaw -  std::numbers::pi / 2;
   glm::vec3 right(sin(yaw_orth), 0, cos(yaw_orth));
   glm::vec3 up = glm::cross(right, direction);
-  return glm::lookAt(pos, pos - direction, up);
-}
+  glm::mat4 view = glm::lookAt(pos, pos - direction, up);
 
-glm::mat4 Camera::proj_mat(float aspect_ratio) {
-  // note: left handed coords with +y down +z out
-  auto proj = glm::perspective(fov, aspect_ratio, z_near, z_far);
-  proj[1][1] *= -1;
-  return proj;
+  return {
+    .view = glm::inverse(view),
+    .viewport = {width, height},
+    .tan_fov = static_cast<float>(tan(fov)),
+    .z_near = z_near,
+    .z_far = z_far,
+    .max_marches = max_marches
+  };
 }
