@@ -3,27 +3,9 @@
 #include "camera.hpp"
 #include "shaders.h"
 #include "vulkan/vulkan.hpp"
+#include <vulkan/vulkan_raii.hpp>
 
 using namespace vx;
-
-template<typename T>
-UniformBuffer<T>::UniformBuffer(Renderer &render) {
-  vk::DeviceSize size = sizeof(T);
-  for (int i = 0; i < Swapchain::MAX_FRAMES_IN_FLIGHT; i++) {
-    ubos_.push_back(nullptr);
-    mems_.push_back(nullptr);
-  }
-
-  // each frame in flight gets its own uniform buffer
-  for (int i = 0; i < Swapchain::MAX_FRAMES_IN_FLIGHT; i++) {
-    render.device().create_buffer(ubos_[i], mems_[i], size,
-      vk::BufferUsageFlagBits::eUniformBuffer,
-      vk::MemoryPropertyFlagBits::eHostVisible |
-      vk::MemoryPropertyFlagBits::eHostCoherent);
-    void *data = mems_[i].mapMemory(0, size, {});
-    mapped_.push_back(reinterpret_cast<T *>(data));
-  }
-}
 
 Renderer::Renderer(vx::Window &window, vx::Device &device,
   uint32_t descriptor_count)
@@ -36,7 +18,6 @@ Renderer::Renderer(vx::Window &window, vx::Device &device,
   create_descriptor_layout();
   create_pipeline();
   create_descriptor_pool(descriptor_count);
-  create_descriptor_sets();
   create_sync_objs();
 }
 
@@ -45,6 +26,20 @@ void Renderer::create_descriptor_layout() {
     vk::DescriptorSetLayoutBinding {
       .binding = 0,
       .descriptorType = vk::DescriptorType::eUniformBuffer,
+      .descriptorCount = 1,
+      .stageFlags = vk::ShaderStageFlagBits::eVertex |
+        vk::ShaderStageFlagBits::eFragment
+    },
+    vk::DescriptorSetLayoutBinding {
+      .binding = 1,
+      .descriptorType = vk::DescriptorType::eUniformBuffer,
+      .descriptorCount = 1,
+      .stageFlags = vk::ShaderStageFlagBits::eVertex |
+        vk::ShaderStageFlagBits::eFragment
+    },
+    vk::DescriptorSetLayoutBinding {
+      .binding = 2,
+      .descriptorType = vk::DescriptorType::eSampledImage,
       .descriptorCount = 1,
       .stageFlags = vk::ShaderStageFlagBits::eFragment
     }
@@ -107,7 +102,7 @@ void Renderer::create_pipeline() {
 
   // how do we want our vertices to be assembled
   vk::PipelineInputAssemblyStateCreateInfo input_assembly {
-    .topology = vk::PrimitiveTopology::eTriangleStrip,
+    .topology = vk::PrimitiveTopology::eTriangleList,
   };
 
   // how do we want to rasterise our geometry
@@ -145,18 +140,18 @@ void Renderer::create_pipeline() {
     .pAttachments = &color_blend_attachment
   };
 
-  vk::PushConstantRange push_constants {
-    .stageFlags = vk::ShaderStageFlagBits::eFragment,
-    .offset = 0,
-    .size = sizeof(CameraUniforms),
-  };
+  // vk::PushConstantRange push_constants {
+  //   .stageFlags = vk::ShaderStageFlagBits::eFragment,
+  //   .offset = 0,
+  //   .size = sizeof(CameraUniforms),
+  // };
 
   // what descriptor sets we can provide to the shaders
   vk::PipelineLayoutCreateInfo layout_info {
     .setLayoutCount = 1,
     .pSetLayouts = &*descriptor_layout,
-    .pushConstantRangeCount = 1,
-    .pPushConstantRanges = &push_constants
+    .pushConstantRangeCount = 0,
+    .pPushConstantRanges = nullptr
   };
 
   pipeline_layout = vk::raii::PipelineLayout(device_.device(), layout_info);
@@ -205,10 +200,15 @@ vk::raii::ShaderModule Renderer::create_shader_module() {
 }
 
 void Renderer::create_descriptor_pool(uint32_t descriptor_count) {
+  uint32_t count = descriptor_count * Swapchain::MAX_FRAMES_IN_FLIGHT;
   std::array pool_sizes {
     vk::DescriptorPoolSize {
       .type = vk::DescriptorType::eUniformBuffer,
-      .descriptorCount = Swapchain::MAX_FRAMES_IN_FLIGHT
+      .descriptorCount = count * 2
+    },
+    vk::DescriptorPoolSize {
+      .type = vk::DescriptorType::eSampledImage,
+      .descriptorCount = count
     }
   };
 
@@ -222,7 +222,8 @@ void Renderer::create_descriptor_pool(uint32_t descriptor_count) {
   descriptor_pool = vk::raii::DescriptorPool(device_.device(), pool_info);
 }
 
-void Renderer::create_descriptor_sets() {
+std::vector<vk::raii::DescriptorSet>
+Renderer::new_descriptor_set() {
   std::vector<vk::DescriptorSetLayout> layouts (Swapchain::MAX_FRAMES_IN_FLIGHT,
     descriptor_layout);
   vk::DescriptorSetAllocateInfo alloc_info {
@@ -231,7 +232,7 @@ void Renderer::create_descriptor_sets() {
     .pSetLayouts = layouts.data()
   };
 
-  camera_descriptor_sets = device_.device().allocateDescriptorSets(alloc_info);
+  auto sets = device_.device().allocateDescriptorSets(alloc_info);
 
   // set up each descriptor set to point to the right uniform buffer
   for (int i = 0; i < Swapchain::MAX_FRAMES_IN_FLIGHT; i++) {
@@ -243,7 +244,7 @@ void Renderer::create_descriptor_sets() {
 
     std::array write_sets {
       vk::WriteDescriptorSet {
-        .dstSet = camera_descriptor_sets[i],
+        .dstSet = sets[i],
         .dstBinding = 0,
         .dstArrayElement = 0,
         .descriptorCount = 1,
@@ -254,6 +255,8 @@ void Renderer::create_descriptor_sets() {
 
     device_.device().updateDescriptorSets(write_sets, {});
   }
+
+  return sets;
 }
 
 ShaderData Renderer::create_shader_data(Texture &texture) {
@@ -435,8 +438,6 @@ void Renderer::begin_recording(int frame_index, Camera camera) {
   commands.setScissor(0,
     vk::Rect2D(vk::Offset2D(0, 0), extent));
   commands.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-  commands.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline_layout,
-    0, *camera_descriptor_sets[frame_index], nullptr);
   camera_uniforms.upload(frame_index, camera.uniforms(width, height));
 }
 
@@ -479,6 +480,13 @@ void Renderer::transition_image_layout(
   commands.pipelineBarrier2(info);
 }
 
+void Renderer::bind_descriptor(std::vector<vk::raii::DescriptorSet> &sets) {
+  auto frame_index = swapchain_.frame_index();
+  auto &commands = command_buffers[frame_index];
+  commands.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+    pipeline_layout, 0, *sets[frame_index], nullptr);
+}
+
 void Renderer::bind_shader_data(ShaderData &data, UniformData &uniforms) {
   auto frame_index = swapchain_.frame_index();
   auto &commands = command_buffers[frame_index];
@@ -491,7 +499,6 @@ void Renderer::end_frame() {
   auto frame_index = swapchain_.frame_index();
   auto &commands = command_buffers[frame_index];
 
-  commands.draw(4, 1, 0, 0);
   commands.endRendering();
 
   // now we want the image buffer to be ready to present

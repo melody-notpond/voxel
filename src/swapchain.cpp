@@ -127,11 +127,11 @@ void Swapchain::create_views(Device &device) {
 void Swapchain::create_depth_resources(Device &device) {
   depth_format_ = find_depth_format(device);
   device.create_image(depth_image_, depth_mem_, extent_.width,
-    extent_.height, depth_format_, vk::ImageTiling::eOptimal,
+    extent_.height, 1, depth_format_, vk::ImageTiling::eOptimal,
     vk::ImageUsageFlagBits::eDepthStencilAttachment,
     vk::MemoryPropertyFlagBits::eDeviceLocal);
-  depth_view_ = device.create_view(depth_image_, depth_format_,
-    vk::ImageAspectFlagBits::eDepth);
+  depth_view_ = device.create_view(depth_image_,
+    vk::ImageViewType::e2D, depth_format_, vk::ImageAspectFlagBits::eDepth);
 }
 
 bool Swapchain::has_stencil() {

@@ -1,5 +1,6 @@
 #include "texture.hpp"
 #include "renderer.hpp"
+#include "vulkan/vulkan.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -20,38 +21,20 @@ void Texture::create_image(vx::CommandPool &pool, const char *path) {
   if (!pixels)
     throw std::runtime_error("could not open texture image :(");
 
-  // create staging buffer
-  vk::DeviceSize size = width * height * 4;
-  vk::raii::Buffer staging = nullptr;
-  vk::raii::DeviceMemory stagingMem = nullptr;
-  pool.device().create_buffer(staging, stagingMem, size,
-    vk::BufferUsageFlagBits::eTransferSrc,
-    vk::MemoryPropertyFlagBits::eHostVisible |
-    vk::MemoryPropertyFlagBits::eHostCoherent);
-
-  // transfer pixel data into staging buffer
-  void *data = stagingMem.mapMemory(0, size);
-  memcpy(data, pixels, size);
-  stagingMem.unmapMemory();
-  stbi_image_free(pixels);
-
   // create image
-  pool.device().create_image(image_, mem_, width, height, vk::Format::eR8G8B8A8Srgb,
+  pool.device().create_image(image_, mem_, width, height, 1, vk::Format::eR8G8B8A8Srgb,
     vk::ImageTiling::eOptimal,
     vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
     vk::MemoryPropertyFlagBits::eDeviceLocal);
 
-  // transfer staging buffer to image
-  pool.transition_image_layout(image_, vk::ImageLayout::eUndefined,
-    vk::ImageLayout::eTransferDstOptimal);
-  pool.copy_buffer_to_image(image_, staging, width, height);
-  pool.transition_image_layout(image_, vk::ImageLayout::eTransferDstOptimal,
-    vk::ImageLayout::eShaderReadOnlyOptimal);
+  // copy to image
+  pool.copy_to_image_staged(image_, pixels, width, height, 1, 16);
+  stbi_image_free(pixels);
 }
 
 void Texture::create_view(vx::CommandPool &pool) {
-  view_ = pool.device().create_view(*image_, vk::Format::eR8G8B8A8Srgb,
-    vk::ImageAspectFlagBits::eColor);
+  view_ = pool.device().create_view(*image_, vk::ImageViewType::e2D,
+    vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
 }
 
 void Texture::create_sampler(vx::CommandPool &pool) {

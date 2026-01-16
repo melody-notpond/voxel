@@ -247,15 +247,16 @@ void Device::create_image(
   vk::raii::DeviceMemory &mem,
   uint32_t width,
   uint32_t height,
+  uint32_t depth,
   vk::Format format,
   vk::ImageTiling tiling,
   vk::ImageUsageFlags usage,
   vk::MemoryPropertyFlags props
 ) {
   vk::ImageCreateInfo imageInfo {
-    .imageType = vk::ImageType::e2D,
+    .imageType = depth == 1 ? vk::ImageType::e2D : vk::ImageType::e3D,
     .format = format,
-    .extent = {width, height, 1},
+    .extent = {width, height, depth},
     .mipLevels = 1,
     .arrayLayers = 1,
     .samples = vk::SampleCountFlagBits::e1,
@@ -278,12 +279,13 @@ void Device::create_image(
 
 vk::raii::ImageView Device::create_view(
   const vk::Image &image,
+  vk::ImageViewType dim,
   vk::Format format,
   vk::ImageAspectFlags aspectMask
 ) {
   vk::ImageViewCreateInfo imageViewInfo {
     .image = image,
-    .viewType = vk::ImageViewType::e2D,
+    .viewType = dim,
     .format = format,
     .subresourceRange = {
       .aspectMask = aspectMask,
@@ -337,6 +339,36 @@ CommandPool Device::create_command_pool() {
   };
 
   return CommandPool(*this, poolInfo);
+}
+
+void CommandPool::copy_to_image_staged(
+  vk::raii::Image &image,
+  void *data,
+  uint32_t width,
+  uint32_t height,
+  uint32_t depth,
+  float elem_size
+) {
+  // create staging buffer
+  vk::DeviceSize size = width * height * depth * elem_size;
+  vk::raii::Buffer staging = nullptr;
+  vk::raii::DeviceMemory stagingMem = nullptr;
+  device_.create_buffer(staging, stagingMem, size,
+    vk::BufferUsageFlagBits::eTransferSrc,
+    vk::MemoryPropertyFlagBits::eHostVisible |
+    vk::MemoryPropertyFlagBits::eHostCoherent);
+
+  // transfer pixel data into staging buffer
+  void *ptr = stagingMem.mapMemory(0, size);
+  memcpy(ptr, data, size);
+  stagingMem.unmapMemory();
+
+  // transfer staging buffer to image
+  transition_image_layout(image, vk::ImageLayout::eUndefined,
+    vk::ImageLayout::eTransferDstOptimal);
+  copy_buffer_to_image(image, staging, width, height, depth);
+  transition_image_layout(image, vk::ImageLayout::eTransferDstOptimal,
+    vk::ImageLayout::eShaderReadOnlyOptimal);
 }
 
 void CommandPool::copy_to_buffer_staged(
@@ -412,7 +444,8 @@ void CommandPool::copy_buffer_to_image(
   const vk::raii::Image &image,
   const vk::raii::Buffer &buffer,
   uint32_t width,
-  uint32_t height
+  uint32_t height,
+  uint32_t depth
 ) {
   auto copy = single_time_commands();
   vk::BufferImageCopy region {
@@ -421,7 +454,7 @@ void CommandPool::copy_buffer_to_image(
     .bufferImageHeight = 0,
     .imageSubresource = { vk::ImageAspectFlagBits::eColor, 0, 0, 1 },
     .imageOffset = {0, 0, 0},
-    .imageExtent = {width, height, 1}
+    .imageExtent = {width, height, depth}
   };
 
   copy->copyBufferToImage(buffer, image,

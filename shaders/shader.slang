@@ -1,13 +1,52 @@
-static float2 vertices[4] = {
-  float2(-1.,  1.),
-  float2( 1.,  1.),
-  float2(-1., -1.),
-  float2( 1., -1.)
+static float3 vertices[8] = {
+  float3(0.5, 0.5, -0.5),
+  float3(0.5, -0.5, -0.5),
+  float3(0.5, 0.5, 0.5),
+  float3(0.5, -0.5, 0.5),
+  float3(-0.5, 0.5, -0.5),
+  float3(-0.5, -0.5, -0.5),
+  float3(-0.5, 0.5, 0.5),
+  float3(-0.5, -0.5, 0.5),
 };
+
+static uint indices[] = {
+  4, 2, 0,
+  2, 7, 3,
+  6, 5, 7,
+  1, 7, 5,
+  0, 3, 1,
+  4, 1, 5,
+  4, 6, 2,
+  2, 6, 7,
+  6, 4, 5,
+  1, 3, 7,
+  0, 2, 3,
+  4, 0, 1
+};
+
+struct Camera {
+  float4x4 proj_view;
+  float4x4 view_inv;
+  float4x4 proj_view_inv;
+  float2 viewport;
+  float tan_fov;
+  float z_near;
+  float z_far;
+  int max_marches;
+}
+
+struct Chunk {
+  float4x4 model;
+}
+
+ConstantBuffer<Camera> cam;
+ConstantBuffer<Chunk> chunk;
+Texture3D voxels;
 
 [shader("vertex")]
 float4 vert_main(uint id : SV_VertexID) : SV_Position {
-  return float4(vertices[id], 0.0, 1.0);
+  float4 p = float4(vertices[indices[id]], 1.0);
+  return mul(cam.proj_view, mul(chunk.model, p));
 }
 
 float4 sd_sphere(float3 p, float3 centre, float radius) {
@@ -59,13 +98,14 @@ float2x2 rot2d(float angle) {
 }
 
 float4 sdf(float3 p) {
-  float4 sphere = sd_sphere(p, float3(0, 1, -3), 1);
-  float3 q = p;
-  q.xz = mul(rot2d(3.14 / 4), q.xz);
-  q.yz = mul(rot2d(3.14 / 4), q.yz);
-  float4 box = sd_box(q, float3(0, 2, -3), float3(0.75));
-  float4 ground = float4(0, 1, 0, p.y + 0.75);
-  return sd_union(ground, sunion(sphere, box, 1));
+  return sd_sphere(p, float3(0, 0, 0), 0.5);
+  // float4 sphere = sd_sphere(p, float3(0, 1, -3), 1);
+  // float3 q = p;
+  // q.xz = mul(rot2d(3.14 / 4), q.xz);
+  // q.yz = mul(rot2d(3.14 / 4), q.yz);
+  // float4 box = sd_box(q, float3(0, 2, -3), float3(0.75));
+  // float4 ground = float4(0, 1, 0, p.y + 0.75);
+  // return sd_union(ground, sunion(sphere, box, 1));
 }
 
 static const float EPSILON = 0.001;
@@ -82,32 +122,20 @@ float3 calculate_normal(float3 p) {
   return normalize(v1 - v2);
 }
 
-struct Camera {
-  float4x4 view;
-  float2 viewport;
-  float tan_fov;
-  float z_near;
-  float z_far;
-  int max_marches;
-}
-
-ConstantBuffer<Camera> cam;
-
 [shader("fragment")]
 float4 frag_main(in float4 pos : SV_Position)
   : SV_Target {
-  float2 uv = float2(1, -1) * (2 * pos.xy - cam.viewport) / cam.viewport.y;
+  float2 uv = (2 * pos.xy - cam.viewport) / cam.viewport;
 
-  float3 ray_origin = float3(0);
-  float3 ray_dir = float3(uv * cam.tan_fov, -1);
-  ray_dir = normalize(ray_dir);
-  float3 color;
+  float3 ray_origin = mul(cam.view_inv, float4(0, 0, 0, 1)).xyz;
+  float4 ray_dir4 = mul(cam.proj_view_inv, float4(uv, 0, 1));
+  float3 ray_dir = normalize(ray_dir4.xyz / ray_dir4.w - ray_origin);
+  float3 color = float3(0, 0.3, 0.8);
   float t = cam.z_near;
   float light = 0;
 
   for (int i = 0; i < cam.max_marches && t < cam.z_far; i++) {
     float3 p = ray_origin + ray_dir * t;
-    p = mul(cam.view, float4(p, 1)).xyz;
     float4 d = sdf(p);
     if (d.a < EPSILON) {
       light = max(0.05, dot(calculate_normal(p), normalize(float3(1, 1, 1))));
@@ -118,7 +146,7 @@ float4 frag_main(in float4 pos : SV_Position)
   }
 
   float depth_mul = (cam.z_far - t) / (cam.z_far - cam.z_near);
-  color *= depth_mul * light;
+  color *= max(0.01, depth_mul * light);
 
   return float4(color, 1);
 }

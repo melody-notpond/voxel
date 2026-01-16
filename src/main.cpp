@@ -1,4 +1,5 @@
 #include "camera.hpp"
+#include "chunk.hpp"
 #include "device.hpp"
 #include "gameobj.hpp"
 #include "renderer.hpp"
@@ -81,8 +82,6 @@ void key_callback(
 }
 
 // TODO
-// - switch from uniforms to push constants?
-// - switch to raymarching (currently working on drawing a rectangle)
 // - start working on voxel
 int main(void) {
   vx::Window window(800, 600, "voxels");
@@ -91,6 +90,7 @@ int main(void) {
   vx::Renderer render(window, device, 2);
   // vx::Texture texture(render, "assets/viking_room.png");
   // vx::Model model(render, "assets/viking_room.obj");
+  vx::Chunk chunk(render, 0, 0, 0);
 
   vx::Camera camera;
 
@@ -99,10 +99,8 @@ int main(void) {
   //   .shader_data = render.create_shader_data(texture),
   // };
 
-  window.delta_time();
   while (!window.should_close()) {
     float dt = window.delta_time();
-    window.poll_events();
 
     // update
     if (window.is_cursor_captured()) {
@@ -116,11 +114,13 @@ int main(void) {
     // render
     if (!render.begin_frame(camera))
       continue;
+    chunk.render(render);
     // glm::mat4 view = camera.view_mat();
     // glm::mat4 proj = camera.proj_mat(render.aspect_ratio());
     // update_uniforms(render, view, proj, obj);
     // obj.render(render);
     render.end_frame();
+    window.poll_events();
   }
 
   device.wait();

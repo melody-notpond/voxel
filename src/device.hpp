@@ -70,6 +70,7 @@ public:
     vk::raii::DeviceMemory &mem,
     uint32_t width,
     uint32_t height,
+    uint32_t depth,
     vk::Format format,
     vk::ImageTiling tiling,
     vk::ImageUsageFlags usage,
@@ -77,6 +78,7 @@ public:
 
   vk::raii::ImageView create_view(
     const vk::Image &image,
+  vk::ImageViewType dim,
     vk::Format format,
     vk::ImageAspectFlags aspectMask
   );
@@ -142,8 +144,8 @@ private:
 
   bool is_suitable(vk::raii::PhysicalDevice device);
   std::optional<uint32_t> find_queue_fams(vk::raii::PhysicalDevice device);
-  uint32_t find_mem_type(
-    uint32_t typeFilter,
+
+  uint32_t find_mem_type(uint32_t typeFilter,
     vk::MemoryPropertyFlags propFilter);
 };
 
@@ -152,6 +154,15 @@ public:
   std::vector<vk::raii::CommandBuffer> create_buffers(uint32_t count);
   vk::raii::CommandBuffer create_buffer();
   [[nodiscard]] vx::SingleTimeCommands single_time_commands();
+
+  void copy_to_image_staged(
+    vk::raii::Image &image,
+    void *data,
+    uint32_t width,
+    uint32_t height,
+    uint32_t depth,
+    float elem_size
+  );
 
   void copy_to_buffer_staged(
     vk::raii::Buffer &buffer,
@@ -169,7 +180,8 @@ public:
     const vk::raii::Image &image,
     const vk::raii::Buffer &buffer,
     uint32_t width,
-    uint32_t height
+    uint32_t height,
+    uint32_t depth
   );
 
   void transition_image_layout(

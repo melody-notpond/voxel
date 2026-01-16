@@ -76,7 +76,10 @@ public:
 
   ShaderData create_shader_data(Texture &texture);
 
+  std::vector<vk::raii::DescriptorSet> new_descriptor_set();
+
   bool begin_frame(Camera camera);
+  void bind_descriptor(std::vector<vk::raii::DescriptorSet> &sets);
   void bind_shader_data(ShaderData &data, UniformData &uniforms);
   void end_frame();
 
@@ -107,7 +110,6 @@ private:
 
   // camera
   vx::UniformBuffer<CameraUniforms> camera_uniforms;
-  std::vector<vk::raii::DescriptorSet> camera_descriptor_sets;
 
   std::vector<vk::raii::Semaphore> render_done_sems;
   std::vector<vk::raii::Semaphore> present_done_sems;
@@ -134,5 +136,24 @@ private:
     vk::PipelineStageFlags2 dst_stage,
     vk::ImageAspectFlags aspect_mask);
 };
+
+template<typename T>
+UniformBuffer<T>::UniformBuffer(Renderer &render) {
+  vk::DeviceSize size = sizeof(T);
+  for (int i = 0; i < Swapchain::MAX_FRAMES_IN_FLIGHT; i++) {
+    ubos_.push_back(nullptr);
+    mems_.push_back(nullptr);
+  }
+
+  // each frame in flight gets its own uniform buffer
+  for (int i = 0; i < Swapchain::MAX_FRAMES_IN_FLIGHT; i++) {
+    render.device().create_buffer(ubos_[i], mems_[i], size,
+      vk::BufferUsageFlagBits::eUniformBuffer,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+      vk::MemoryPropertyFlagBits::eHostCoherent);
+    void *data = mems_[i].mapMemory(0, size, {});
+    mapped_.push_back(reinterpret_cast<T *>(data));
+  }
+}
 
 }

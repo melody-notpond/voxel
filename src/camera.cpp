@@ -3,6 +3,7 @@
 #include <cmath>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/matrix_clip_space.hpp>
+#include <glm/matrix.hpp>
 
 using namespace vx;
 
@@ -41,8 +42,13 @@ CameraUniforms Camera::uniforms(float width, float height) {
   glm::vec3 up = glm::cross(right, direction);
   glm::mat4 view = glm::lookAt(pos, pos - direction, up);
 
+  auto proj = glm::perspective(glm::radians(45.f), width / height, .1f, 10.f);
+  proj[1][1] *= -1;
+
   return {
-    .view = glm::inverse(view),
+    .proj_view = proj * view,
+    .view_inv = glm::inverse(view),
+    .proj_view_inv = glm::inverse(proj * view),
     .viewport = {width, height},
     .tan_fov = static_cast<float>(tan(fov)),
     .z_near = z_near,
