@@ -15,6 +15,8 @@ enum VoxelType : uint32_t {
 
 struct ChunkUniforms {
   glm::mat4 model;
+  glm::mat4 model_inv;
+  uint32_t voxel_count;
 };
 
 class Chunk {
@@ -22,6 +24,7 @@ public:
   Chunk(Renderer &render, int x, int y, int z);
 
   static const int SIZE = 1;
+  static const int COUNT = 8;
 
   void render(vx::Renderer &render);
 
@@ -31,7 +34,7 @@ public:
 
 private:
   int x_, y_, z_;
-  uint32_t voxels[SIZE][SIZE][SIZE];
+  uint32_t voxels[COUNT][COUNT][COUNT];
 
   std::vector<vk::raii::DescriptorSet> descriptor_sets;
   UniformBuffer<ChunkUniforms> uniforms;

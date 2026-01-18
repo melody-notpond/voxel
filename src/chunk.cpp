@@ -1,6 +1,7 @@
 #include "chunk.hpp"
 #include "vulkan/vulkan.hpp"
 #include <glm/ext/matrix_transform.hpp>
+#include <glm/matrix.hpp>
 
 using namespace vx;
 
@@ -11,12 +12,12 @@ Chunk::Chunk(Renderer &render, int x, int y, int z)
   , descriptor_sets (render.new_descriptor_set())
   , uniforms (render) {
   // generate a sphere
-  float radius_sq = (float) SIZE / 2 * (float) SIZE / 2;
-  float c = (float) SIZE / 2;
+  float radius_sq = (float) COUNT / 2. * (float) COUNT / 2.;
+  float c = (float) COUNT / 2.;
 
-  for (int i = 0; i < SIZE; i++) {
-    for (int j = 0; j < SIZE; j++) {
-      for (int k = 0; k < SIZE; k++) {
+  for (int i = 0; i < COUNT; i++) {
+    for (int j = 0; j < COUNT; j++) {
+      for (int k = 0; k < COUNT; k++) {
         float i_ = (float) i;
         float j_ = (float) j;
         float k_ = (float) k;
@@ -31,18 +32,24 @@ Chunk::Chunk(Renderer &render, int x, int y, int z)
     }
   }
 
+  for (int i = 0; i < COUNT; i++) {
+    if (i & 1)
+      voxels[i][0][0] = VoxelType::Light;
+    else voxels[i][0][0] = VoxelType::Dark;
+  }
+
   // create image
-  render.device().create_image(image_, mem_, SIZE, SIZE, SIZE,
-    vk::Format::eR32Sint, vk::ImageTiling::eLinear,
+  render.device().create_image(image_, mem_, COUNT, COUNT, COUNT,
+    vk::Format::eR32Uint, vk::ImageTiling::eLinear,
     vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
     vk::MemoryPropertyFlagBits::eDeviceLocal);
 
   // copy voxels to image
-  render.pool().copy_to_image_staged(image_, voxels, SIZE, SIZE, SIZE, 4);
+  render.pool().copy_to_image_staged(image_, voxels, COUNT, COUNT, COUNT, 4);
 
   // create image view
   view_ = render.device().create_view(*image_, vk::ImageViewType::e3D,
-    vk::Format::eR32Sint, vk::ImageAspectFlagBits::eColor);
+    vk::Format::eR32Uint, vk::ImageAspectFlagBits::eColor);
 
   // put uniforms and image in descriptor
   vk::DescriptorImageInfo image_info {
@@ -84,7 +91,9 @@ void Chunk::render(vx::Renderer &render) {
   glm::mat4 model = glm::scale(glm::mat4(1.), {SIZE, SIZE, SIZE});
   model = glm::translate(model, {x_, y_, z_});
   uniforms.upload(render.swapchain().frame_index(), {
-    .model = model
+    .model = model,
+    .model_inv = glm::inverse(model),
+    .voxel_count = COUNT
   });
 
   render.bind_descriptor(descriptor_sets);

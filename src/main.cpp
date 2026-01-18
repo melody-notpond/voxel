@@ -90,7 +90,7 @@ int main(void) {
   vx::Renderer render(window, device, 2);
   // vx::Texture texture(render, "assets/viking_room.png");
   // vx::Model model(render, "assets/viking_room.obj");
-  vx::Chunk chunk(render, 0, 0, 0);
+  vx::Chunk chunk(render, 0, 0, -2);
 
   vx::Camera camera;
 
