@@ -110,7 +110,7 @@ void Renderer::create_pipeline() {
     .depthClampEnable = false,
     .rasterizerDiscardEnable = false,
     .polygonMode = vk::PolygonMode::eFill,
-    .cullMode = vk::CullModeFlagBits::eBack,
+    .cullMode = vk::CullModeFlagBits::eFront,
     .frontFace = vk::FrontFace::eCounterClockwise,
     .depthBiasEnable = false,
     .depthBiasSlopeFactor = 1.0,

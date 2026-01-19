@@ -39,30 +39,34 @@ float4 vert_main(uint id : SV_VertexID) : SV_Position {
 }
 
 int3 pos_to_voxel_coords(float3 pos) {
-  return int3(pos * chunk.voxel_count);
+  return int3(floor(pos * chunk.voxel_count));
 }
 
-void next_voxel_plane(inout int3 voxel_pos, int3 step, inout float3 t_max,
+float next_voxel_plane(inout int3 voxel_pos, int3 step, inout float3 t_max,
   float3 t_delta, out float3 normal) {
   if (t_max.x < t_max.y) {
     if (t_max.x < t_max.z) {
       t_max.x += t_delta.x;
       voxel_pos.x += step.x;
       normal = float3(-step.x, 0, 0);
+      return t_max.x - t_delta.x;
     } else {
       t_max.z += t_delta.z;
       voxel_pos.z += step.z;
       normal = float3(0, 0, -step.z);
+      return t_max.z - t_delta.z;
     }
   } else {
     if (t_max.y < t_max.z) {
       t_max.y += t_delta.y;
       voxel_pos.y += step.y;
       normal = float3(0, -step.y, 0);
+      return t_max.y - t_delta.y;
     } else {
       t_max.z += t_delta.z;
       voxel_pos.z += step.z;
       normal = float3(0, 0, -step.z);
+      return t_max.z - t_delta.z;
     }
   }
 }
@@ -83,24 +87,31 @@ float3 bound(float3 s, float3 ds) {
   return float3(bound(s.x, ds.x), bound(s.y, ds.y), bound(s.z, ds.z));
 }
 
+static float EPSILON = 0.01;
+
 // returns the voxel coordinate in .xyz and the voxel data in .w
 // uses dda traversal
-uint4 raymarch(float3 pos, float3 dir, uint limit, float start, float end,
-  out float3 normal) {
-  float3 origin = pos + start * dir;
-  int3 voxel_pos = pos_to_voxel_coords(origin);
+uint raymarch(float3 pos, float3 dir, uint limit, float start, float end,
+  out float3 voxel_pos, out float3 normal) {
+  float t = start;
+  float3 origin = pos + t * dir;
+  int3 coord = pos_to_voxel_coords(origin);
   int3 step = sign(dir);
   float3 t_max = bound(origin, dir);
   float3 t_delta = step / dir / chunk.voxel_count;
 
-  for (int i = 0; i < limit * 10; i++) {
-    uint voxel = voxels.Load(int4(voxel_pos, 0));
-    if (voxel != 0)
-      return uint4(voxel_pos, voxel);
-
-    next_voxel_plane(voxel_pos, step, t_max, t_delta, normal);
+  for (int i = 0; i < limit; i++) {
+    t = next_voxel_plane(coord, step, t_max, t_delta, normal);
+    uint voxel = voxels.Load(int4(coord, 0));
+    if (voxel != 0) {
+      voxel_pos = origin + (t - EPSILON) * dir;
+      return voxel;
+    }
   }
-  return uint4(voxel_pos, 0);
+
+  voxel_pos = float3(0);
+  normal = float3(0);
+  return 0;
 }
 
 [shader("fragment")]
@@ -114,13 +125,24 @@ float4 frag_main(in float4 pos : SV_Position)
     float4(uv, 0, 1));
   float3 ray_dir = normalize(ray_dir4.xyz / ray_dir4.w - ray_origin);
   float3 normal;
+  float3 voxel_pos;
 
-  uint4 voxel_data = raymarch(ray_origin, ray_dir, cam.max_marches, cam.z_near,
-    cam.z_far, normal);
-  float light = max(0.05, dot(normal, normalize(float3(0.5, 1, 0.7))));
-  switch (voxel_data.w) {
+  uint voxel = raymarch(ray_origin, ray_dir, cam.max_marches, 0,
+    cam.z_far, voxel_pos, normal);
+  if (voxel == 0)
+    return float4(0);
+
+  float3 light_dir = normalize(float3(0.5, 1, 0.7));
+  float3 temp;
+  uint cover = raymarch(voxel_pos, light_dir, cam.max_marches, 0, cam.z_far,
+    temp, temp);
+
+  float light = 0.05;
+  if (cover == 0)
+    light = max(0.05, dot(normal, light_dir));
+  switch (voxel) {
     case 0:
-      return float4(1, 1, 1, 1);
+      return float4(0);
     case 1:
       return float4(1, 1, 0, 1) * light;
     case 2:

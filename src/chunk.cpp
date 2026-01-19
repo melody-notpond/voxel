@@ -33,9 +33,11 @@ Chunk::Chunk(Renderer &render, int x, int y, int z)
   }
 
   for (int i = 0; i < COUNT; i++) {
-    if (i & 1)
-      voxels[i][0][0] = VoxelType::Light;
-    else voxels[i][0][0] = VoxelType::Dark;
+    for (int j = 0; j < COUNT; j++) {
+      if ((i + j) & 1)
+        voxels[i][0][j] = VoxelType::Light;
+      else voxels[i][0][j] = VoxelType::Dark;
+    }
   }
 
   // create image
