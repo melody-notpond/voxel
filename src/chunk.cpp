@@ -12,7 +12,7 @@ Chunk::Chunk(Renderer &render, int x, int y, int z)
   , descriptor_sets (render.new_descriptor_set())
   , uniforms (render) {
   // generate a sphere
-  float radius_sq = (float) COUNT / 2. * (float) COUNT / 2.;
+  float radius_sq = (float) (COUNT - 1) / 2. * (float) (COUNT - 1) / 2.;
   float c = (float) COUNT / 2.;
 
   for (int i = 0; i < COUNT; i++) {

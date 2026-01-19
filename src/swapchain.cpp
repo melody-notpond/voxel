@@ -82,10 +82,10 @@ vk::SurfaceFormatKHR Swapchain::choose_format(
 vk::PresentModeKHR Swapchain::choose_present_mode(
   const std::vector<vk::PresentModeKHR> &availableModes
 ) {
-  // for (auto mode : availableModes) {
-  //   if (mode == vk::PresentModeKHR::eMailbox)
-  //     return mode;
-  // }
+  for (auto mode : availableModes) {
+    if (mode == vk::PresentModeKHR::eMailbox)
+      return mode;
+  }
 
   return vk::PresentModeKHR::eFifo;
 }

@@ -1,23 +1,12 @@
 #include "camera.hpp"
 #include "chunk.hpp"
 #include "device.hpp"
-#include "gameobj.hpp"
 #include "renderer.hpp"
 #include "texture.hpp"
 #include "window.hpp"
 #include <vulkan/vulkan_raii.hpp>
 
 using namespace std;
-
-void update_uniforms(vx::Renderer &render, glm::mat4 view, glm::mat4 proj,
-  vx::GameObj &obj) {
-  // vx::UniformData ubo {
-  //   .model = glm::translate(glm::mat4(1.), { 0., 0., -5. }),
-  //   .view = view,
-  //   .proj = proj
-  // };
-  // obj.uniforms = ubo;
-}
 
 vx::CameraAction cam_action = vx::CameraAction::None;
 
@@ -81,23 +70,16 @@ void key_callback(
   }
 }
 
-// TODO
-// - start working on voxel
+// TODO:
+// - sparse voxel octrees
 int main(void) {
   vx::Window window(800, 600, "voxels");
   window.set_key_callback(key_callback);
   vx::Device device(window);
-  vx::Renderer render(window, device, 2);
-  // vx::Texture texture(render, "assets/viking_room.png");
-  // vx::Model model(render, "assets/viking_room.obj");
+  vx::Renderer render(window, device, 3);
   vx::Chunk chunk(render, 0, 0, -2);
-
+  vx::Chunk chunk2(render, 0, 0, 0);
   vx::Camera camera;
-
-  // vx::GameObj obj {
-  //   .model = model,
-  //   .shader_data = render.create_shader_data(texture),
-  // };
 
   while (!window.should_close()) {
     float dt = window.delta_time();
@@ -115,10 +97,7 @@ int main(void) {
     if (!render.begin_frame(camera))
       continue;
     chunk.render(render);
-    // glm::mat4 view = camera.view_mat();
-    // glm::mat4 proj = camera.proj_mat(render.aspect_ratio());
-    // update_uniforms(render, view, proj, obj);
-    // obj.render(render);
+    chunk2.render(render);
     render.end_frame();
     window.poll_events();
   }

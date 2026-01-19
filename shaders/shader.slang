@@ -89,10 +89,9 @@ float3 bound(float3 s, float3 ds) {
 
 static float EPSILON = 0.01;
 
-// returns the voxel coordinate in .xyz and the voxel data in .w
 // uses dda traversal
 uint raymarch(float3 pos, float3 dir, uint limit, float start, float end,
-  out float3 voxel_pos, out float3 normal) {
+  out float3 voxel_pos, out float3 normal, out float depth) {
   float t = start;
   float3 origin = pos + t * dir;
   int3 coord = pos_to_voxel_coords(origin);
@@ -100,23 +99,29 @@ uint raymarch(float3 pos, float3 dir, uint limit, float start, float end,
   float3 t_max = bound(origin, dir);
   float3 t_delta = step / dir / chunk.voxel_count;
 
-  for (int i = 0; i < limit; i++) {
+  for (int i = 0; i < limit && t < end; i++) {
     t = next_voxel_plane(coord, step, t_max, t_delta, normal);
     uint voxel = voxels.Load(int4(coord, 0));
     if (voxel != 0) {
       voxel_pos = origin + (t - EPSILON) * dir;
+      depth = (t - start) / (end - start);
       return voxel;
     }
   }
 
   voxel_pos = float3(0);
   normal = float3(0);
+  depth = 1.;
   return 0;
 }
 
+struct frag_out {
+  float4 color : SV_Target;
+  float depth : SV_Depth;
+}
+
 [shader("fragment")]
-float4 frag_main(in float4 pos : SV_Position)
-  : SV_Target {
+frag_out frag_main(in float4 pos : SV_Position) {
   float2 uv = (2 * pos.xy - cam.viewport) / cam.viewport;
 
   float3 ray_origin = mul(mul(chunk.model_inv, cam.view_inv),
@@ -126,28 +131,30 @@ float4 frag_main(in float4 pos : SV_Position)
   float3 ray_dir = normalize(ray_dir4.xyz / ray_dir4.w - ray_origin);
   float3 normal;
   float3 voxel_pos;
+  float depth;
 
-  uint voxel = raymarch(ray_origin, ray_dir, cam.max_marches, 0,
-    cam.z_far, voxel_pos, normal);
+  uint voxel = raymarch(ray_origin, ray_dir, cam.max_marches, cam.z_near,
+    cam.z_far, voxel_pos, normal, depth);
   if (voxel == 0)
-    return float4(0);
+    return {float4(0), depth};
 
   float3 light_dir = normalize(float3(0.5, 1, 0.7));
   float3 temp;
-  uint cover = raymarch(voxel_pos, light_dir, cam.max_marches, 0, cam.z_far,
-    temp, temp);
+  float temp_;
+  uint cover = raymarch(voxel_pos, light_dir, cam.max_marches, EPSILON,
+    cam.z_far, temp, temp, temp_);
 
   float light = 0.05;
   if (cover == 0)
     light = max(0.05, dot(normal, light_dir));
   switch (voxel) {
     case 0:
-      return float4(0);
+      return {float4(0), depth};
     case 1:
-      return float4(1, 1, 0, 1) * light;
+      return {float4(1, 1, 0, 1) * light, depth};
     case 2:
-      return float4(0.7, 0.7, 0, 1) * light;
+      return {float4(0.7, 0.7, 0, 1) * light, depth};
     default:
-      return float4(1, 0, 0, 1);
+      return {float4(1, 0, 0, 1), depth};
   }
 }

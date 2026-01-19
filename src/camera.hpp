@@ -64,7 +64,7 @@ private:
   static constexpr float DEGREES_90  = glm::radians(90.);
   static constexpr float DEGREES_360 = glm::radians(360.);
 
-  glm::vec3 pos = {0, 0, 2};
+  glm::vec3 pos = {0, 0, 0};
   float pitch; // pitch is up-down
   float yaw; // yaw is left-right
 
